@@ -1,8 +1,11 @@
 #include<unistd.h>
+#include<stdlib.h>
+#include<stdio.h>
 #include<sys/types.h>
 #include<sys/ipc.h>
 #include<sys/shm.h>
 #include<sys/msg.h>
+#include<time.h>
 #include"ErrorLogging.h"
 #include"IPCUtilities.h"
 #include"ProcessControlBlock.h"
@@ -13,6 +16,7 @@
 #define ID_PCB 3
 #define ID_MSG_TO 4
 #define ID_MSG_FROM 5
+#define MAX_PERCENT 100
 
 // Global variable definitions
 // Probably not the cleanest to have these global - but I'm not sure of a better way
@@ -40,7 +44,7 @@ const char* processName = NULL;
 
 typedef struct {
 	long mtype;
-	char mtext[300];
+	char mtext[50];
 } mymsg_t;
 
 // Function declarations
@@ -76,21 +80,31 @@ void executeChild()
 	pid_t thisPid = getpid();
 
 	// Child can't execute unless it has received a message from oss
-	mymsg_t fromMsg;
+	mymsg_t fromMsg, returnMsg;
 	int bytesRead;
 	
-	if ( (bytesRead = msgrcv(msgIdToChild, &fromMsg, sizeof(fromMsg), thisPid, 0)) == -1 )
-		writeError("Failed to read message from oss to child\n", processName);
-	else
-		printf("Child %d read %d bytes\n", thisPid, bytesRead);
-
-	printf("Child execute stuff mtype: %d, mtext: %s\n", fromMsg.mtype, fromMsg.mtext);
+	int finished = 0;	
+	while (!finished)
+	{
+		if ( (bytesRead = msgrcv(msgIdToChild, &fromMsg, sizeof(fromMsg), thisPid, 0)) == -1 )
+			writeError("Failed to read message from oss to child\n", processName);
 		
-	mymsg_t returnMsg;
-	returnMsg.mtype = 1;
-	strcpy(returnMsg.mtext, "TEST");
-	if( msgsnd(msgIdToOss, &returnMsg, sizeof(returnMsg), 0) == -1 )
-		writeError("Failed to send message to parent\n", processName);
+		if ((rand() % MAX_PERCENT) < 30)
+		{
+			int timeQuantum = atoi(fromMsg.mtext);
+			int usedQuantum = rand() % timeQuantum;
+			snprintf(returnMsg.mtext, 50, "%d", usedQuantum);
+			finished = 1;
+		}
+		else
+		{
+			strcpy(returnMsg.mtext, "0");
+		}	
+		
+		returnMsg.mtype = 1;
+		if( msgsnd(msgIdToOss, &returnMsg, sizeof(returnMsg), 0) == -1 )
+			writeError("Failed to send message to parent\n", processName);
+	}		
 }
 
 void attachToSharedMemory()
