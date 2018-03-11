@@ -91,7 +91,7 @@ int  getProcessToDispath(pid_t *, int *);
 
 int main(int argc, char** argv)
 {
-	srand(time(NULL));
+	srand(time(NULL) * getpid());
 	processName = argv[0];
 	
 	signal(SIGINT, handleInterruption);
@@ -153,28 +153,36 @@ void executeOss()
 	int timeQuantum = 0;
 	int processSpawnSeconds = 0, processSpawnNanoSeconds = 0;
 
+	spawnProcess(realTimeQueue);
+	spawnProcess(realTimeQueue);
+	spawnProcess(realTimeQueue);
+	spawnProcess(realTimeQueue);
+	spawnProcess(realTimeQueue);
+	spawnProcess(realTimeQueue);
+	spawnProcess(realTimeQueue);
 	while (!continueLooping  && *seconds < 1)
 	{
 		// check to see if we need to spawn a new process
-		if (*seconds >= processSpawnSeconds && *nanoSeconds >= processSpawnNanoSeconds)
-		{
-			spawnProcess(realTimeQueue);
-			
-			processSpawnSeconds = *seconds;
-			processSpawnNanoSeconds = *nanoSeconds + (rand() % MAX_NEW_PROC_NS);
-			
-			if (processSpawnNanoSeconds >= NANO_PER_SECOND)
-			{
-				++processSpawnSeconds;
-				processSpawnNanoSeconds -= NANO_PER_SECOND;
-			}
-		
-			processSpawnSeconds += (rand() % MAX_NEW_PROC_S);
-			printf("Scheduled for %d and %d\n", processSpawnSeconds, processSpawnNanoSeconds);
-		}
+	//	if (*seconds >= processSpawnSeconds && *nanoSeconds >= processSpawnNanoSeconds)
+	//	{
+	//		spawnProcess(realTimeQueue);
+	//		
+	//		processSpawnSeconds = *seconds;
+	//		processSpawnNanoSeconds = *nanoSeconds + (rand() % MAX_NEW_PROC_NS);
+	//		
+	//		if (processSpawnNanoSeconds >= NANO_PER_SECOND)
+	//		{
+	//			++processSpawnSeconds;
+	//			processSpawnNanoSeconds -= NANO_PER_SECOND;
+	//		}
+	//	
+	//		processSpawnSeconds += (rand() % MAX_NEW_PROC_S);
+	//		printf("Scheduled for %d and %d\n", processSpawnSeconds, processSpawnNanoSeconds);
+	//	}
 		
 		int index = getProcessToDispatch(realTimeQueue, &timeQuantum);
-		
+		printf("inside dispatch if %d\n", index);
+
 		// if we have a process to run, then we need to run it
 		if (index != -1)
 		{
@@ -251,6 +259,7 @@ void executeOss()
 		}
 		else
 		{
+			break;
 			int dispatchNanoSeconds = rand() % MAX_DISPATCH;
 			if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
 			{
@@ -277,7 +286,10 @@ void spawnProcess(pid_t* realTimeQueue)
 	for (index = 0, found = 0; index < MAX_PROCESSES && !found; ++index)
 	{
 		if (pcbOccupied[index] == 0)
+		{
 			found = 1;
+			break;
+		}
 	}
 	
 	// If we can't find a spot, don't spawn
@@ -285,7 +297,7 @@ void spawnProcess(pid_t* realTimeQueue)
 		return;
 
 	pid_t newChild = createChildProcess("./user", processName);
-
+	printf("Spawned child %d, at pcb index %d\n", newChild, index);
 	if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
 	{
 		fprintf(ossLog, "OSS: Generating process with PID %d  and putting it in queue 0 at time %d:%d\n", newChild, *seconds, *nanoSeconds);
@@ -306,7 +318,6 @@ int getProcessToDispatch(pid_t* realTimeQueue, int* timeQuantum)
 
 	processToDispatch = DequeueValue(realTimeQueue, MAX_PROCESSES);
 	*timeQuantum = REALTIME_QUANTUM;	
-
 
 	if (processToDispatch == 0)
 	{
