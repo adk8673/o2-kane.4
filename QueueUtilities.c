@@ -32,6 +32,5 @@ void EnqueueValue(pid_t* queue, pid_t pid, int size)
 	int i = 0;
 	for (i = 0; i < size && queue[i] != 0; ++i) ;
 
-	printf("Queued at location: %d\n", i);
 	queue[i] = pid;
 }

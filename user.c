@@ -58,21 +58,19 @@ int main(int argc, char** argv)
 	srand(time(NULL) * getpid());
 	processName = argv[0];
 
-	printf("Child process created, %d\n", getpid());
-	
+		
 	// Get access to our shared memory
 	attachToSharedMemory();
 	
 	// Get ids of our message queues
 	getMessageQueues();
 
-	printf("Memory and message accessed, beginning child execution\n");
+	printf("Child process %d has been initialized\n", getpid());
 	executeChild();
 
 	// Deattach from our shared memory
 	dettachSharedMemory();
 	
-	printf("Child %d execution completed\n", getpid());
 	return 0;
 }
 
@@ -87,10 +85,11 @@ void executeChild()
 	int finished = 0;	
 	while (!finished)
 	{
-		printf("In execute child for %d\n", thisPid);
 		if ( (bytesRead = msgrcv(msgIdToChild, &fromMsg, sizeof(fromMsg), thisPid, 0)) == -1 )
 			writeError("Failed to read message from oss to child\n", processName);
-		printf("Got message in child %d\n", thisPid);
+		
+		printf("Child with pid %d is running\n", getpid());
+
 		if ((rand() % MAX_PERCENT) < 30)
 		{
 			int timeQuantum = atoi(fromMsg.mtext);
