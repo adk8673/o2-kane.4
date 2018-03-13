@@ -94,13 +94,14 @@ void executeChild()
 	int finished = 0;	
 	while (!finished)
 	{
+		printf("test received message\n");
 		if ( (bytesRead = msgrcv(msgIdToChild, &fromMsg, sizeof(fromMsg), thisPid, 0)) == -1 )
 			writeError("Failed to read message from oss to child\n", processName);
 		
 		printf("Child with pid %d is running\n", getpid());
 
 		int timeQuantum = atoi(fromMsg.mtext);
-
+		
 		// first, check to see if this process should finish
 		if ((rand() % MAX_PERCENT) < 30)
 		{

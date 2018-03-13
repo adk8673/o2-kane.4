@@ -1,4 +1,5 @@
 #include<unistd.h>
+#include<math.h>
 #include<signal.h>
 #include<stdio.h>
 #include<stdlib.h>
@@ -26,9 +27,10 @@
 #define MAX_NEW_PROC_NS 100000
 #define MAX_DISPATCH 100000
 #define MAX_DISPATCH_BLOCKED 500000
+#define MAX_PERCENT 100
 
 // define time quantums
-#define REALTIME_QUANTUM 10000000
+#define BASE_QUANTUM 1000000
 
 // Global variable definitions
 // Probably not the cleanest to have these global - but I'm not sure of a better way
@@ -66,14 +68,28 @@ const char* processName = NULL;
 // Bit array to mark each PCB entry as occupied or not
 int pcbOccupied[MAX_PROCESSES];
 
-// Total processed spawned - need to track so after 100 we can quit
+// Total processed completed - need to track so after 100 we can quit
 int totalProcessesCompleted = 0;
+
+// Total processes spawned
+int totalProcessesSpawned = 0;
 
 // Total lines written
 int totalLinesWritten = 0;
 
 // Output log file
 FILE* ossLog = NULL;
+
+// Queue Objects
+// Define our queues - will actually just be arrays since our max is small and known
+pid_t* realTimeQueue;
+pid_t* ioBlockedQueue;
+
+// Multilevel queue for non-realtime processes
+pid_t* firstPriorityQueue;
+pid_t* secondPriorityQueue;
+pid_t* thirdPriorityQueue;
+
 
 typedef struct {
 	long mtype;
@@ -87,8 +103,8 @@ void allocateAllSharedMessageQueues();
 void deallocateAllSharedMessageQueues();
 void excuteOss();
 void handleInterruption(int);
-void spawnProcess(pid_t *);
-int  getProcessToDispath(pid_t *, int *);
+void spawnProcess();
+int  getProcessToDispath(int *);
 
 int main(int argc, char** argv)
 {
@@ -146,13 +162,13 @@ void executeOss()
 	mymsg_t childMsg, ossMsg;
 
 	// Define our queues - will actually just be arrays since our max is small and known
-	pid_t* realTimeQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
-	pid_t* ioBlockedQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
+	realTimeQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
+	ioBlockedQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
 
 	// Multilevel queue for non-realtime processes
-	pid_t* firstPriorityQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
-	pid_t* secondPriorityQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
-	pid_t* thirdPriorityQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
+	firstPriorityQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
+	secondPriorityQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
+	thirdPriorityQueue = malloc(sizeof(pid_t) * MAX_PROCESSES);
 
 	int bytesRead;
 
@@ -165,7 +181,7 @@ void executeOss()
 		// check to see if we need to spawn a new process
 		if (*seconds >= processSpawnSeconds && *nanoSeconds >= processSpawnNanoSeconds)
 		{
-			spawnProcess(realTimeQueue);
+			spawnProcess();
 			
 			processSpawnSeconds = *seconds;
 			processSpawnNanoSeconds = *nanoSeconds + (rand() % MAX_NEW_PROC_NS);
@@ -195,7 +211,8 @@ void executeOss()
 			
 			if (pcb[blockedIndex].BlockedSeconds <= *seconds && pcb[blockedIndex].BlockedNanoSeconds <= *nanoSeconds)
 			{
-				printf("Looks like value should be dequeued %d time %d:%d\n", pcb[blockedIndex].ProcessId, pcb[blockedIndex].BlockedSeconds, pcb[blockedIndex].BlockedNanoSeconds);
+				printf("Dequeued process %d because it is passed time %d:%d\n", pcb[blockedIndex].ProcessId, pcb[blockedIndex].BlockedSeconds, pcb[blockedIndex].BlockedNanoSeconds);
+				
 				// Event has happened, process needs to be requeued for execution
 				pcb[blockedIndex].IOBlocked = 0;
 				pcb[blockedIndex].BlockedSeconds = 0;
@@ -214,7 +231,7 @@ void executeOss()
 				
 				if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
 				{
-					fprintf(ossLog, "OSS: Process %d moved from blocked queue to queue 0 taking %d nanoseconds, at time %d:%d\n", pcb[blockedIndex].ProcessId, dispatchTime, *seconds, *nanoSeconds);
+					fprintf(ossLog, "OSS: Process %d moved from blocked queue to queue %d taking %d nanoseconds, at time %d:%d\n", pcb[blockedIndex].ProcessId, pcb[blockedIndex].QueueNumber, dispatchTime, *seconds, *nanoSeconds);
 					++totalLinesWritten; 
 				}
 			}
@@ -235,22 +252,17 @@ void executeOss()
 		
 		free(tempBlockedQueue);
 
-		int index = getProcessToDispatch(realTimeQueue, &timeQuantum);
+		int index = getProcessToDispatch(&timeQuantum);
 		// if we have a process to run, then we need to run it
 		if (index != -1)
-		{
-			if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
-			{
-				fprintf(ossLog, "OSS: Dispatching process with PID %d from queue 0 at time %d:%d\n", pcb[index].ProcessId, *seconds, *nanoSeconds);
-				++totalLinesWritten;
-			}
+		{		
 			childMsg.mtype = pcb[index].ProcessId;
 			snprintf(childMsg.mtext, 50, "%d", timeQuantum);
-
+			
 			// dispatch process	
 			if (msgsnd(msgIdToChild, &childMsg, sizeof(childMsg), 0) == -1)
 				writeError("Failed when sending message to child\n", processName);
-		
+			
 			int dispatchNanoSeconds = rand() % MAX_DISPATCH;
 
 			if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
@@ -269,7 +281,7 @@ void executeOss()
 			// regain control from child process
 			if ((bytesRead = msgrcv(msgIdToOss, &ossMsg, sizeof(ossMsg), 1, 0)) == -1)
 				writeError("Failed when receiving message message from child\n", processName);
-
+			
 			int returnedValue = atoi(ossMsg.mtext);
 			// Handle if the process terminating, using some portion of its time quantum
 			if (returnedValue > 0)
@@ -282,7 +294,7 @@ void executeOss()
 
 				if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
 				{
-					fprintf(ossLog, "OSS: Receiving that process with PID %d ran for %d nanoseconds\n", pcb[index].ProcessId, returnedValue);
+					fprintf(ossLog, "OSS: Receiving that process with PID %d ran for %d nanoseconds and then completed\n", pcb[index].ProcessId, returnedValue);
 					++totalLinesWritten;
 				}
 
@@ -311,22 +323,37 @@ void executeOss()
 			else if (returnedValue == 0)
 			{
 				*nanoSeconds += timeQuantum;
-
+				if (*nanoSeconds >= NANO_PER_SECOND)
+				{
+					*seconds += 1;
+					*nanoSeconds -= NANO_PER_SECOND;
+				}
+				
 				if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
 				{
 					fprintf(ossLog, "OSS: Receiving that process with PID %d ran for %d nanoseconds\n", pcb[index].ProcessId, timeQuantum);
 					++totalLinesWritten;
 				}
 
-				// Didn't complete, need to 
+				// Didn't complete, need to requeue this process
 				if (pcb[index].RealTime)
+				{
 					EnqueueValue(realTimeQueue, pcb[index].ProcessId, MAX_PROCESSES);
-			}
-
-			if (*nanoSeconds >= NANO_PER_SECOND)
-			{
-				*seconds += 1;
-				*nanoSeconds -= NANO_PER_SECOND;
+				}
+				else if (pcb[index].QueueNumber == 1)
+				{
+					pcb[index].QueueNumber = 2;
+					EnqueueValue(secondPriorityQueue, pcb[index].ProcessId, MAX_PROCESSES);
+				}
+				else if (pcb[index].QueueNumber == 2)
+				{
+					pcb[index].QueueNumber = 3;
+					EnqueueValue(thirdPriorityQueue, pcb[index].ProcessId, MAX_PROCESSES);
+				}
+				else
+				{
+					EnqueueValue(thirdPriorityQueue, pcb[index].ProcessId, MAX_PROCESSES);
+				}
 			}
 		}
 		else
@@ -346,7 +373,7 @@ void executeOss()
 				*nanoSeconds -= NANO_PER_SECOND;
 			}
 			
-			if (totalProcessesCompleted >= MAX_PROCESSES && !checkForProcesses())
+			if (totalProcessesCompleted >= TOTAL_PROCESS_LIMIT && !checkForProcesses())
 			{
 				printf("Test output %d:%d\n", *seconds, *nanoSeconds);
 				int j;
@@ -382,8 +409,12 @@ int checkForProcesses()
 	return processesRunning;
 }
 
-void spawnProcess(pid_t* realTimeQueue)
+void spawnProcess()
 {
+	// Only spawn a total of 100 processes, if we have hit this limit, just don't spawn any more
+	if (totalProcessesSpawned >= TOTAL_PROCESS_LIMIT)
+		return;
+
 	int index, found;
 	for (index = 0, found = 0; index < MAX_PROCESSES && !found; ++index)
 	{
@@ -399,33 +430,62 @@ void spawnProcess(pid_t* realTimeQueue)
 		return;
 
 	pid_t newChild = createChildProcess("./user", processName);
+
+	pcb[index].ProcessId = newChild;
 	
+	if ((rand() % MAX_PERCENT) > 5)
+		pcb[index].RealTime = 0;
+	else
+		pcb[index].RealTime = 1;
+
+	pcbOccupied[index] = 1;
+
+	// Queue based on what type of process we have
+	if (pcb[index].RealTime)
+	{
+		pcb[index].QueueNumber = 0;
+		EnqueueValue(realTimeQueue, pcb[index].ProcessId, MAX_PROCESSES);
+	}
+	else
+	{
+		pcb[index].QueueNumber = 1;
+		EnqueueValue(firstPriorityQueue, pcb[index].ProcessId, MAX_PROCESSES);
+	}
+
 	if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
 	{
-		fprintf(ossLog, "OSS: Generating process with PID %d and putting it in queue 0 at time %d:%d\n", newChild, *seconds, *nanoSeconds);
+		fprintf(ossLog, "OSS: Generating process with PID %d and putting it in queue %d at time %d:%d\n", newChild, pcb[index].QueueNumber, *seconds, *nanoSeconds);
 		++totalLinesWritten;
 	}
 
-	pcb[index].ProcessId = newChild;
-	pcb[index].RealTime = 1; // Hardcode to be realtime first, others lateri
-	pcbOccupied[index] = 1;
-	if (pcb[index].RealTime)
-		EnqueueValue(realTimeQueue, pcb[index].ProcessId, MAX_PROCESSES);	
+	++totalProcessesSpawned;
 }
 
-int getProcessToDispatch(pid_t* realTimeQueue, int* timeQuantum)
+int getProcessToDispatch(int* timeQuantum)
 {
 	pid_t processToDispatch = 0;
 	int index = -1; // index in process control table of process to be dispatched
 
 	processToDispatch = DequeueValue(realTimeQueue, MAX_PROCESSES);
-	*timeQuantum = REALTIME_QUANTUM;	
+	*timeQuantum = BASE_QUANTUM;	
 	
 	if (processToDispatch == 0)
 	{
-		// look into other queues
+		processToDispatch = DequeueValue(firstPriorityQueue, MAX_PROCESSES);
+		*timeQuantum = BASE_QUANTUM * 2 * pow(2, 0);
 	}
 
+	if (processToDispatch == 0)
+	{
+		processToDispatch = DequeueValue(secondPriorityQueue, MAX_PROCESSES);
+		*timeQuantum = BASE_QUANTUM * 2 * pow(2, 1);
+	}
+
+	if (processToDispatch == 0)
+	{
+		processToDispatch = DequeueValue(thirdPriorityQueue, MAX_PROCESSES);
+		*timeQuantum = BASE_QUANTUM * 2 * pow(2, 2);
+	}
 
 	if (processToDispatch != 0)
 	{
@@ -439,7 +499,15 @@ int getProcessToDispatch(pid_t* realTimeQueue, int* timeQuantum)
 	
 	if (processToDispatch == 0)
 		index = -1;
+	else if (index != -1)
+	{
+		if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
+		{
+			fprintf(ossLog, "OSS: Dispatching process with PID %d from queue %d at time %d:%d\n", pcb[index].ProcessId,  pcb[index].QueueNumber, *seconds, *nanoSeconds);
+			++totalLinesWritten;
+		}
 
+	}
 	return index;
 }
 
@@ -525,7 +593,19 @@ void handleInterruption(int signo)
 		deallocateAllSharedMessageQueues();
 		deallocateAllSharedMemory();
 
+		if (realTimeQueue != NULL)
+			free(realTimeQueue);
+		if (ioBlockedQueue != NULL)
+			free(ioBlockedQueue);
+		if (firstPriorityQueue != NULL)
+			free(firstPriorityQueue);
+		if (secondPriorityQueue != NULL)
+			free(secondPriorityQueue);
+		if (thirdPriorityQueue != NULL)
+			free(thirdPriorityQueue);
+	
 		printf("oss exiting due to signal\n");
+		printf("Number of completed processes: %d\n", totalProcessesCompleted);
 		kill(0, SIGKILL);	
 	}
 }
