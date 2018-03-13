@@ -17,6 +17,8 @@
 #define ID_MSG_TO 4
 #define ID_MSG_FROM 5
 #define MAX_PERCENT 100
+#define IO_SECONDS 2
+#define IO_NANO_SECONDS 100000
 
 // Global variable definitions
 // Probably not the cleanest to have these global - but I'm not sure of a better way
@@ -82,6 +84,13 @@ void executeChild()
 	mymsg_t fromMsg, returnMsg;
 	int bytesRead;
 	
+	int index;
+	for (index = 0; index < MAX_PROCESSES; ++index)
+	{
+		if(pcb[index].ProcessId == thisPid)
+			break;
+	}
+
 	int finished = 0;	
 	while (!finished)
 	{
@@ -90,12 +99,26 @@ void executeChild()
 		
 		printf("Child with pid %d is running\n", getpid());
 
+		int timeQuantum = atoi(fromMsg.mtext);
+
+		// first, check to see if this process should finish
 		if ((rand() % MAX_PERCENT) < 30)
 		{
-			int timeQuantum = atoi(fromMsg.mtext);
 			int usedQuantum = rand() % timeQuantum;
 			snprintf(returnMsg.mtext, 50, "%d", usedQuantum);
 			finished = 1;
+		}
+		// then, see if this user process was blocked on IO
+		else if ((rand() % MAX_PERCENT) < 10)
+		{
+			int usedQuantum = (rand() % timeQuantum) * -1;
+			snprintf(returnMsg.mtext, 50, "%d", usedQuantum);
+
+			// Need to determine when the event will occur
+			pcb[index].IOBlocked = 1;
+
+			pcb[index].BlockedSeconds = *seconds + IO_SECONDS;
+			pcb[index].BlockedNanoSeconds = *nanoSeconds + IO_NANO_SECONDS;
 		}
 		else
 		{
