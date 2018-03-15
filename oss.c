@@ -105,17 +105,26 @@ void excuteOss();
 void handleInterruption(int);
 void spawnProcess();
 int  getProcessToDispath(int *);
+int checkCommandArgs(int, char**);
 
 int main(int argc, char** argv)
 {
+	// seed random which wwill be used to generate random numbers
 	srand(time(NULL) * getpid());
+
+	// Set our global process name - will be used for writing of errors
 	processName = argv[0];
 	
+	// Set signals which will handle timer inerrupts and command line interruptions
 	signal(SIGINT, handleInterruption);
 	signal(SIGALRM, handleInterruption);
 	
 	printf("Begin execution of oss\n");
 
+	// Handle if the command line argument for help has been passed
+	if (checkCommandArgs(argc, argv))
+		return 0;
+	
 	// Initialize bit vector of PCB table to empty
 	int i; 
 	for (i = 0; i < MAX_PROCESSES; ++i)
@@ -568,12 +577,15 @@ void deallocateAllSharedMemory()
 	deallocateSharedMemory(shmidNanoSeconds, processName);
 }
 
+// allocate all our IPC message queues in one spot, setting the global variables to the id
 void allocateAllSharedMessageQueues()
 {
 	msgIdToChild = allocateMessageQueue(ID_MSG_TO, processName);
 	msgIdToOss = allocateMessageQueue(ID_MSG_FROM, processName);	
 }
 
+// Deallocate the messages queues used by the process assuming they have actually been allocated
+// (not equal to 0)
 void deallocateAllSharedMessageQueues()
 {
 	if (msgIdToChild != 0)
@@ -583,6 +595,7 @@ void deallocateAllSharedMessageQueues()
 		deallocateMessageQueue(msgIdToOss, processName);
 }
 
+// Handle any interruption in this function, whether it is an interupttion from the command line or a timer interrup
 void handleInterruption(int signo)
 {
 	if (signo == SIGALRM || signo == SIGINT)
@@ -608,4 +621,32 @@ void handleInterruption(int signo)
 		printf("Number of completed processes: %d\n", totalProcessesCompleted);
 		kill(0, SIGKILL);	
 	}
+}
+
+// Check our arguments passed from the command line.  In this case, since we are only accepting the
+// -h option from the command line, we only need to return 1 int which indicates if a the help 
+// argument was passed.
+int checkCommandArgs(int argc, char** argv)
+{
+	int argFlagHelp = 0;
+	int c;
+	while ((c = getopt(argc, argv, "h")) != -1)
+	{
+		switch (c)
+		{
+			case 'h':
+				argFlagHelp = 1;
+				break;	
+			default:
+				writeError("Unrecognized command line argument\n", processName);
+				break;
+		}
+	}
+	
+	if (argFlagHelp == 1)
+	{
+		printf("oss (second iteration):\nWhen ran (using the option ./oss), the process oss will fork children and manage their running time using a message queues, which will be used to allot slices of time to child processes.  Statistics will also be returned.\nThere is only one command line option:\n-h Displays this help message\n");
+	}
+	
+	return argFlagHelp;
 }
