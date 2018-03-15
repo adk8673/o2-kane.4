@@ -229,7 +229,13 @@ void executeOss()
 
 				// logic for additional classes here
 				EnqueueValue(realTimeQueue, pcb[blockedIndex].ProcessId, MAX_PROCESSES);
+				
+				// Now that we're unblocked, we need to track how much time we were blocked at 
+				pcb[blockedIndex].NanoSecondsSleeping += ((*seconds - pcb[blockedIndex].BlockedAtSeconds) * (NANO_PER_SECOND)) + (*nanoSeconds - pcb[blockedIndex].BlockedAtNanoSeconds);
 
+				pcb[blockedIndex].BlockedAtSeconds = 0;
+				pcb[blockedIndex].BlockedAtNanoSeconds = 0;
+	
 				int dispatchTime =  rand() % MAX_DISPATCH_BLOCKED;
 				*nanoSeconds += dispatchTime;
 				if (*nanoSeconds >= NANO_PER_SECOND)
@@ -264,7 +270,11 @@ void executeOss()
 		int index = getProcessToDispatch(&timeQuantum);
 		// if we have a process to run, then we need to run it
 		if (index != -1)
-		{		
+		{
+			pcb[index].NanoSecondsWaiting += ((*seconds - pcb[index].LastScheduledSeconds) * (NANO_PER_SECOND)) + (*nanoSeconds - pcb[index].LastScheduledNanoSeconds);
+			pcb[index].LastScheduledSeconds = *seconds;
+			pcb[index].LastScheduledNanoSeconds = *nanoSeconds;
+		
 			childMsg.mtype = pcb[index].ProcessId;
 			snprintf(childMsg.mtext, 50, "%d", timeQuantum);
 			
@@ -296,8 +306,13 @@ void executeOss()
 			if (returnedValue > 0)
 			{
 				*nanoSeconds += returnedValue;
-				++totalProcessesCompleted;
-				
+				if (*nanoSeconds >= NANO_PER_SECOND)
+				{
+					*seconds += 1;
+					*nanoSeconds -= NANO_PER_SECOND;
+				}
+
+				++totalProcessesCompleted;				
 				printf("Child %d finished\n", pcb[index].ProcessId);
 				
 
@@ -317,6 +332,16 @@ void executeOss()
 				returnedValue = returnedValue * -1;
 				*nanoSeconds += returnedValue;
 				
+				if (*nanoSeconds >= NANO_PER_SECOND)
+				{
+					*seconds += 1;
+					*nanoSeconds -= NANO_PER_SECOND;
+				}
+		
+				// Need to keep track of when the process became blocked
+				pcb[index].BlockedAtSeconds = *seconds;
+				pcb[index].BlockedAtNanoSeconds = *nanoSeconds;
+	
 				printf("Child %d became blocked on IO\n", pcb[index].ProcessId);
 
 				if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
@@ -325,6 +350,8 @@ void executeOss()
 					++totalLinesWritten;
 				}
 				
+				
+
 				// Block this pid_t so that we can later seee if it's ready to be processed
 				EnqueueValue(ioBlockedQueue, pcb[index].ProcessId, MAX_PROCESSES);	
 			}
@@ -440,8 +467,17 @@ void spawnProcess()
 
 	pid_t newChild = createChildProcess("./user", processName);
 
+	// Initialize process control block for this process
 	pcb[index].ProcessId = newChild;
-	
+	pcb[index].BlockedAtSeconds = 0;
+	pcb[index].BlockedAtNanoSeconds = 0;
+	pcb[index].LastScheduledSeconds = *seconds;
+	pcb[index].LastScheduledNanoSeconds = *nanoSeconds;
+	pcb[index].NanoSecondsWaiting = 0;
+	pcb[index].NanoSecondsSleeping = 0;
+	pcb[index].CreatedAtSeconds = *seconds;
+	pcb[index].CreatedAtNanoSeconds = *nanoSeconds;
+
 	if ((rand() % MAX_PERCENT) > 5)
 		pcb[index].RealTime = 0;
 	else

@@ -7,18 +7,42 @@ struct ProcessControlBlock {
 	
 	// 1 If process is realtime and must be scheduled round robin, 0 if not
 	int RealTime;
-	
+
+	// Seconds process was created at
+	int CreatedAtSeconds;
+
+	// NanoSeconds process was created at
+	int CreatedAtNanoSeconds;
+		
 	// 1 IF blocked on IO
 	int IOBlocked;
 
-	// Blocked seconds
+	// Blocked At seconds
+	int BlockedAtSeconds;
+	
+	// Bloecked At Nanoseconds
+	int BlockedAtNanoSeconds;
+
+	// Seconds to be blocked until
 	int BlockedSeconds;
 
-	// Blocked nanoSeconds
+	// Nanoseconds to be blocked until
 	int BlockedNanoSeconds;
 
 	// Queue number
 	int QueueNumber;
+
+	// Last scheduled seconds
+	int LastScheduledSeconds;
+
+	// Last scheduled nanoseconds
+	int LastScheduledNanoSeconds;
+
+	// Total nano seconds waiting
+	long NanoSecondsWaiting;
+
+	// Total time sleeping
+	long NanoSecondsSleeping;
 };
 
 #endif
