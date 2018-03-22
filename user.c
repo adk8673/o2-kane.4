@@ -72,7 +72,6 @@ int main(int argc, char** argv)
 
 	// Deattach from our shared memory
 	dettachSharedMemory();
-	
 	return 0;
 }
 
@@ -94,7 +93,6 @@ void executeChild()
 	int finished = 0;	
 	while (!finished)
 	{
-		printf("test received message\n");
 		if ( (bytesRead = msgrcv(msgIdToChild, &fromMsg, sizeof(fromMsg), thisPid, 0)) == -1 )
 			writeError("Failed to read message from oss to child\n", processName);
 		

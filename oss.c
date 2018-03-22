@@ -14,7 +14,7 @@
 #include"ProcessControlBlock.h"
 #include"ProcessUtilities.h"
 
-#define MAX_PROCESSES 18
+#define MAX_PROCESSES 18 
 #define ID_SECONDS 1
 #define ID_NANO_SECONDS 2
 #define ID_PCB 3
@@ -90,6 +90,11 @@ pid_t* firstPriorityQueue;
 pid_t* secondPriorityQueue;
 pid_t* thirdPriorityQueue;
 
+// Local variables to produce statistics at end
+long totalSleepingNanoSeconds = 0;
+long totalWaitingNanoSeconds = 0;
+long totalTurnaroundNanoSeconds = 0;
+long totalIdleNanoSeconds = 0;
 
 typedef struct {
 	long mtype;
@@ -106,6 +111,7 @@ void handleInterruption(int);
 void spawnProcess();
 int  getProcessToDispath(int *);
 int checkCommandArgs(int, char**);
+void displayStatistics();
 
 int main(int argc, char** argv)
 {
@@ -314,14 +320,23 @@ void executeOss()
 
 				++totalProcessesCompleted;				
 				printf("Child %d finished\n", pcb[index].ProcessId);
+		
+				// Add times to statistics	
+				totalSleepingNanoSeconds += pcb[index].NanoSecondsSleeping;
+				totalWaitingNanoSeconds += pcb[index].NanoSecondsWaiting;
 				
+				// Calculate turn around time for process
+				totalTurnaroundNanoSeconds += (*seconds - pcb[index].CreatedAtSeconds) * NANO_PER_SECOND;
+				totalTurnaroundNanoSeconds += *nanoSeconds - pcb[index].CreatedAtNanoSeconds;
 
 				if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
 				{
 					fprintf(ossLog, "OSS: Receiving that process with PID %d ran for %d nanoseconds and then completed\n", pcb[index].ProcessId, returnedValue);
 					++totalLinesWritten;
 				}
-
+				
+				int status;
+				waitpid(pcb[index].ProcessId, &status, 0); 
 				pcbOccupied[index] = 0;
 				pcb[index].ProcessId = 0;
 				pcb[index].RealTime = 0;
@@ -396,12 +411,7 @@ void executeOss()
 		{
 			
 			int dispatchNanoSeconds = rand() % MAX_DISPATCH;
-			/*if (ossLog != NULL && totalLinesWritten < MAX_LINES_WRITE)
-			{
-				fprintf(ossLog, "OSS: total time for this dispatch was %d nanoseconds\n", dispatchNanoSeconds);
-				++totalLinesWritten;
-			}
-*/
+	
 			*nanoSeconds += dispatchNanoSeconds;
 			if (*nanoSeconds >= NANO_PER_SECOND)
 			{
@@ -409,13 +419,11 @@ void executeOss()
 				*nanoSeconds -= NANO_PER_SECOND;
 			}
 			
+			totalIdleNanoSeconds += dispatchNanoSeconds;
+			
 			if (totalProcessesCompleted >= TOTAL_PROCESS_LIMIT && !checkForProcesses())
 			{
 				printf("Test output %d:%d\n", *seconds, *nanoSeconds);
-				int j;
-				for (j = 0; j < MAX_PROCESSES; ++j)
-					printf("Process ID: %d Blocked on io: %d\n", pcb[j].ProcessId, pcb[j].IOBlocked);
-
 				stopLooping = 1;
 			}
 		}
@@ -427,6 +435,8 @@ void executeOss()
 	free(firstPriorityQueue);
 	free(secondPriorityQueue);
 	free(thirdPriorityQueue);
+
+	displayStatistics();
 }
 
 int checkForProcesses()
@@ -652,7 +662,9 @@ void handleInterruption(int signo)
 			free(secondPriorityQueue);
 		if (thirdPriorityQueue != NULL)
 			free(thirdPriorityQueue);
-	
+
+		displayStatistics();	
+
 		printf("oss exiting due to signal\n");
 		printf("Number of completed processes: %d\n", totalProcessesCompleted);
 		kill(0, SIGKILL);	
@@ -685,4 +697,50 @@ int checkCommandArgs(int argc, char** argv)
 	}
 	
 	return argFlagHelp;
+}
+
+// calculate and display statistics on run time
+void displayStatistics()
+{
+	char statisticsMessage[1024];
+	long averageNanoSecondsSleeping = totalSleepingNanoSeconds / totalProcessesCompleted;
+	long averageNanoSecondsWaiting = totalWaitingNanoSeconds / totalProcessesCompleted;
+	long averageNanoSecondsTurnaround = totalTurnaroundNanoSeconds / totalProcessesCompleted;
+
+	long averageSecondsSleeping = averageNanoSecondsSleeping / NANO_PER_SECOND;
+	if (averageSecondsSleeping < 0)
+		averageSecondsSleeping = 0;
+	else
+		averageNanoSecondsSleeping = averageNanoSecondsSleeping - (averageSecondsSleeping * NANO_PER_SECOND);
+
+	long averageSecondsWaiting = averageNanoSecondsWaiting / NANO_PER_SECOND;
+	if (averageSecondsWaiting < 0)
+		averageSecondsWaiting = 0;
+	else
+		averageNanoSecondsWaiting = averageNanoSecondsWaiting - (averageSecondsWaiting * NANO_PER_SECOND);
+
+	long averageSecondsTurnaround = averageNanoSecondsTurnaround / NANO_PER_SECOND;
+	if (averageNanoSecondsTurnaround  < 0)
+		averageSecondsTurnaround = 0;
+	else
+		averageNanoSecondsTurnaround = averageNanoSecondsTurnaround - (averageSecondsTurnaround * NANO_PER_SECOND);
+
+	long totalSecondsIdle = totalIdleNanoSeconds / NANO_PER_SECOND;
+	if (totalSecondsIdle < 0)
+		totalSecondsIdle = 0;
+	else
+		totalIdleNanoSeconds = totalIdleNanoSeconds - (totalSecondsIdle * NANO_PER_SECOND);
+
+	snprintf(statisticsMessage, 1024, "OSS: Final statistics\nAverage sleeping time: Seconds %d NanoSeconds %d\nAverage seconds waiting: Seconds %d NanoSeconds %d\nAverage turnaroundtime: Seconds %d NanoSeconds %d\nTotal idle time: Seconds %d NanoSeconds %d\n", 
+		averageSecondsSleeping, averageNanoSecondsSleeping,
+		averageSecondsWaiting, averageNanoSecondsWaiting,
+		averageSecondsTurnaround, averageNanoSecondsTurnaround,
+		totalSecondsIdle, totalIdleNanoSeconds);
+	
+	printf("Final statistics:\n%s\n", statisticsMessage);
+
+	if (ossLog != NULL)
+        {
+        	fprintf(ossLog, "%s", statisticsMessage);
+        }
 }
