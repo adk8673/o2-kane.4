@@ -1,0 +1,13 @@
+Project 4
+CS 4760
+Alex Kane
+
+In this project, a main exectuable ./oss will initialize, create a system clock in shared memory, and allocate a process table consisting of an array of ProcessControlBlock objects.  It will then spawn off children at semi-random intervals and they will be scheduled following a set of rules.
+
+It will produce a log file, 'oss.log' which will contain information about the passage of time in the system and the activity of child processes (their position in queues, any io blocking, etc...)
+
+The process will conclude with a set of statistics about wait time, time blocked (sleeping), throughput, and system idle time.  
+
+Normal operation of the program consists of using the command './oss' after the project has been made.  The executable can also be invoked with the command line argument -h, although it sparse as no other command line arguments are accepted.
+
+The code is stored in a git repository, which is hosted on github.  The commit log can be found at https://github.com/adk8673/o2-kane.4/commits/master

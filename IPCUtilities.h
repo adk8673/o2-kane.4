@@ -1,3 +1,10 @@
+// IPCUtilities.h
+// CS 4760 Project 4
+// Alex Kane 3/22/2018
+// IPC Wrapper functions declarations
+#ifndef IPCUTILITIES_H
+#define IPCUTILITIES_H
+
 // This is mostly used internally to parse the passed id into a key value that should be reproducible
 // in other executables in the same directory, which can then be used to get IPC resources
 key_t getKey(int);
@@ -20,3 +27,5 @@ void* getExistingSharedMemory(int, const char*);
 
 // Deallocate the shared memory segment witht he given ID
 void deallocateSharedMemory(int, const char*);
+
+#endif

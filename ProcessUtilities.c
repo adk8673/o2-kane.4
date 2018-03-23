@@ -1,3 +1,8 @@
+// ProcessUtilities.c
+// CS 4760 Project 4
+// Alex Kane 3/22/2018
+// Utilities functions for forking off new child processes
+// Wraps fork() and exec() calls
 #include<unistd.h>
 #include<errno.h>
 #include<sys/types.h>

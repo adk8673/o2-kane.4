@@ -1,3 +1,9 @@
+// ProcessControlBlock.h
+// CS 4760 Project 4
+// Alex Kane 3/22/2018
+// Declaration of ProcessControlBlock struct which is used to store information about
+// child processes of oss.  Declared so that it can be included in both user and oss
+// easily
 #ifndef PROCESS_CONTROL_BLOCK_H
 #define PROCESS_CONTROL_BLOCK_H
 

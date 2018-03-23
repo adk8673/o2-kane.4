@@ -1,3 +1,7 @@
+// QueueUtilities.c
+// CS 4760 Project 4
+// Alex Kane 3/22/2018
+// Utility functions for carrying out queue operations on an array
 #include<unistd.h>
 #include<sys/types.h>
 #include"QueueUtilities.h"

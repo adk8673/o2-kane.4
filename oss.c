@@ -1,3 +1,7 @@
+// oss.c
+// CS 4760 Project 4
+// Alex Kane 3/22/2018
+// Master executable code - contains most of application logic
 #include<unistd.h>
 #include<math.h>
 #include<signal.h>
